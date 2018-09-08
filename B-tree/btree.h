@@ -26,6 +26,8 @@ const int MinKeys = 5;    // min number of keys in a node
 
 const long NilPtr = -1L;   // the L indicates a long int
 
+const long InvalidPtr = -12L; // for debug. 
+
 
 typedef struct
    {
@@ -58,6 +60,12 @@ class BTTableClass: public TableBaseClass
          long & NewRight);
       void PushDown(const ItemType & CurrentItem, long CurrentRoot,
          bool & MoveUp, ItemType & NewItem, long & NewRight);
+#ifdef DEBUG
+      void zeroCurrentNode();
+      void zeroItem(ItemType &item);
+      void assignItem(ItemType &target, const ItemType &source);
+      void cleanNode(NodeType &node);
+#endif
       long Root;       // fake pointer to the root node
       long NumNodes;   // number of nodes in the B-tree
       int NodeSize;    // number of bytes per node
