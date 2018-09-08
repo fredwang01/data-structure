@@ -42,6 +42,7 @@ void BTTableClass::Dump(void)
    int k;
    long p;
 
+
    cout << endl << "Root is node (record) number " << Root << endl;
 
    for (p = 0; p <= NumNodes; p++)
@@ -149,10 +150,11 @@ BTTableClass::BTTableClass(char Mode, char * FileName)
    {
    #ifdef DEBUG
       cout << "BTTableClass constructor called" << endl;
+      zeroCurrentNode();
    #endif
 
    OpenMode = Mode;
-   NodeSize = sizeof(NodeType);
+   NodeSize = sizeof(NodeType);   
 
    if (Mode == 'r')
       {
@@ -194,12 +196,39 @@ BTTableClass::BTTableClass(char Mode, char * FileName)
       DataFile.write(reinterpret_cast <char *> (&CurrentNode), NodeSize);
 
       #ifdef DEBUG
+         DataFile.flush();
          cout << "W";
       #endif
       }
    else
       Error("Incorrect mode given to BTTableClass constructor");
    }
+
+#ifdef DEBUG
+void BTTableClass::zeroCurrentNode() {
+	memset(&CurrentNode, 0, sizeof(CurrentNode));
+}
+
+void BTTableClass::zeroItem(ItemType &item) {
+	memset((void *)&item, 0, sizeof(item));
+}
+
+void BTTableClass::assignItem(ItemType &target, const ItemType &source) {
+	zeroItem(target);
+	//Note: key and data are both string, so we use strncpy to assign item.
+	strncpy(target.KeyField, source.KeyField, KFMaxPlus1);
+	strncpy(target.DataField, source.DataField, DFMaxPlus1);
+}
+
+void BTTableClass::cleanNode(NodeType &node) {
+	assert(node.Count > 0);
+	for (int i = node.Count; i < MaxKeys; i++) {
+		zeroItem(node.Key[i]);
+		node.Branch[i+1] = InvalidPtr;
+	}
+}
+
+#endif
 
 
 /* Given:   Nothing (other than the implicit object).
@@ -224,9 +253,10 @@ BTTableClass::~BTTableClass(void)
       DataFile.write(reinterpret_cast <char *> (&CurrentNode), NodeSize);
 
       #ifdef DEBUG
+         DataFile.flush();
          cout << "W";
       #endif
-      }
+  }
 
    #ifdef DEBUG
       Dump();
@@ -295,13 +325,17 @@ void BTTableClass::AddItem(const ItemType & NewItem, long NewRight,
    {
    int j;
 
-   for (j = Node.Count; j > Location; j--)
-      {
+   for (j = Node.Count; j > Location; j--) {
       Node.Key[j] = Node.Key[j - 1];
       Node.Branch[j + 1] = Node.Branch[j];
-      }
+   }
 
+#ifdef DEBUG
+   assignItem(Node.Key[Location], NewItem);
+#else
    Node.Key[Location] = NewItem;
+#endif
+
    Node.Branch[Location + 1] = NewRight;
    Node.Count++;
    }
@@ -326,6 +360,7 @@ void BTTableClass::AddItem(const ItemType & NewItem, long NewRight,
 void BTTableClass::Split(const ItemType & CurrentItem, long CurrentRight,
    long CurrentRoot, int Location, ItemType & NewItem, long & NewRight)
    {
+
    int j, Median;
    NodeType RightNode;
 
@@ -337,7 +372,7 @@ void BTTableClass::Split(const ItemType & CurrentItem, long CurrentRight,
       Median = MinKeys;
    else
       Median = MinKeys + 1;
-
+  
    DataFile.seekg(CurrentRoot * NodeSize, ios::beg);
    DataFile.read(reinterpret_cast <char *> (&CurrentNode), NodeSize);
 
@@ -345,11 +380,15 @@ void BTTableClass::Split(const ItemType & CurrentItem, long CurrentRight,
       cout << "R";
    #endif
 
-   for (j = Median; j < MaxKeys; j++)
-      {  // move half of the items to the RightNode
-      RightNode.Key[j - Median] = CurrentNode.Key[j];
+   for (j = Median; j < MaxKeys; j++) {  // move half of the items to the RightNode
+#ifdef DEBUG
+	   assignItem(RightNode.Key[j - Median], CurrentNode.Key[j]);
+#else
+	   RightNode.Key[j - Median] = CurrentNode.Key[j];
+#endif //
+
       RightNode.Branch[j - Median + 1] = CurrentNode.Branch[j + 1];
-      }
+   }
 
    RightNode.Count = MaxKeys - Median;
    CurrentNode.Count = Median;   // is then incremented by AddItem
@@ -358,28 +397,41 @@ void BTTableClass::Split(const ItemType & CurrentItem, long CurrentRight,
    if (Location < MinKeys)
       AddItem(CurrentItem, CurrentRight, CurrentNode, Location + 1);
    else
-      AddItem(CurrentItem, CurrentRight, RightNode,
-         Location - Median + 1);
+      AddItem(CurrentItem, CurrentRight, RightNode, Location - Median + 1);
 
+#ifdef DEBUG
+   assignItem(NewItem, CurrentNode.Key[CurrentNode.Count - 1]);
+#else
    NewItem = CurrentNode.Key[CurrentNode.Count - 1];
+#endif //
+
    RightNode.Branch[0] = CurrentNode.Branch[CurrentNode.Count];
    CurrentNode.Count--;
 
+#ifdef DEBUG
+   cleanNode(CurrentNode);
+#endif
    DataFile.seekp(CurrentRoot * NodeSize, ios::beg);
    DataFile.write(reinterpret_cast <char *> (&CurrentNode), NodeSize);
 
    #ifdef DEBUG
+      DataFile.flush();
       cout << "W";
    #endif
 
    NumNodes++;
    NewRight = NumNodes;
+#ifdef DEBUG
+   cleanNode(RightNode);
+#endif
    DataFile.seekp(NewRight * NodeSize, ios::beg);
    DataFile.write(reinterpret_cast <char *> (&RightNode), NodeSize);
 
    #ifdef DEBUG
+      DataFile.flush();
       cout << "W";
    #endif
+      
    }
 
 
@@ -410,7 +462,12 @@ void BTTableClass::PushDown(const ItemType & CurrentItem, long CurrentRoot,
    if (CurrentRoot == NilPtr)   // stopping case
       {   // cannot insert into empty tree
       MoveUp = true;
+#ifdef DEBUG
+      assignItem(NewItem, CurrentItem);
+#else
       NewItem = CurrentItem;
+#endif
+
       NewRight = NilPtr;
       }
    else   // recursive case
@@ -425,8 +482,7 @@ void BTTableClass::PushDown(const ItemType & CurrentItem, long CurrentRoot,
       if (SearchNode(CurrentItem.KeyField, Location))
          Error("Error: attempt to put a duplicate into B-tree");
 
-      PushDown(CurrentItem, CurrentNode.Branch[Location + 1], MoveUp,
-         NewItem, NewRight);
+      PushDown(CurrentItem, CurrentNode.Branch[Location + 1], MoveUp, NewItem, NewRight);
 
       if (MoveUp)
          {
@@ -441,19 +497,22 @@ void BTTableClass::PushDown(const ItemType & CurrentItem, long CurrentRoot,
             {
             MoveUp = false;
             AddItem(NewItem, NewRight, CurrentNode, Location + 1);
+
+#ifdef DEBUG
+            cleanNode(CurrentNode);
+#endif
             DataFile.seekp(CurrentRoot * NodeSize, ios::beg);
-            DataFile.write(reinterpret_cast <char *> (&CurrentNode),
-               NodeSize);
+            DataFile.write(reinterpret_cast <char *> (&CurrentNode), NodeSize);
 
             #ifdef DEBUG
+               DataFile.flush();
                cout << "W";
             #endif
             }
          else
             {
             MoveUp = true;
-            Split(NewItem, NewRight, CurrentRoot, Location,
-               NewItem, NewRight);
+            Split(NewItem, NewRight, CurrentRoot, Location, NewItem, NewRight);
             }
          }
       }
@@ -470,7 +529,7 @@ bool BTTableClass::Insert(const ItemType & Item)
    {
    bool MoveUp;
    long NewRight;
-   ItemType NewItem;
+   ItemType NewItem = {0};
 
    #ifdef DEBUG
       cout << "I";
@@ -481,18 +540,28 @@ bool BTTableClass::Insert(const ItemType & Item)
    if (MoveUp)   // create a new root node
       {
       CurrentNode.Count = 1;
+#ifdef DEBUG
+      assignItem(CurrentNode.Key[0], NewItem);
+#else
       CurrentNode.Key[0] = NewItem;
+#endif
+
       CurrentNode.Branch[0] = Root;
       CurrentNode.Branch[1] = NewRight;
       NumNodes++;
       Root = NumNodes;
+
+#ifdef DEBUG
+      cleanNode(CurrentNode);
+#endif
       DataFile.seekp(NumNodes * NodeSize, ios::beg);
       DataFile.write(reinterpret_cast <char *> (&CurrentNode), NodeSize);
 
       #ifdef DEBUG
+         DataFile.flush();
          cout << "W";
       #endif
-      }
+   }
 
    NumItems++;   // fixed 12/21/2001
    return true;   // no reason not to assume success
@@ -535,5 +604,4 @@ bool BTTableClass::Retrieve(KeyFieldType SearchKey, ItemType & Item)
 
    return Found;
    }
-
 
